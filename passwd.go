@@ -41,6 +41,17 @@ func generateSalt(size uint32) (string, error) {
 // https://github.com/P-H-C/phc-string-format/blob/master/phc-sf-spec.md
 // https://crypto.stackexchange.com/questions/48935/why-use-argon2i-or-argon2d-if-argon2id-exists
 func Hash(password string) (string, error) {
+	return hash(password, parallelism, saltLen, time, memory, keyLen)
+}
+
+// Verify attempts to compare the password with the hash in constant-time compare.
+func Verify(password, phc string) error {
+	return verify(password, phc, keyLen)
+}
+
+// -- helper functions
+
+func hash(password string, parallelism uint8, saltLen, time, memory, keyLen uint32) (string, error) {
 	if len(strings.TrimSpace(password)) == 0 {
 		return "", errors.New("password cannot be empty")
 	}
@@ -54,8 +65,8 @@ func Hash(password string) (string, error) {
 	return phc, nil
 }
 
-// Verify attempts to compare the password with the hash in constant-time compare.
-func Verify(password, phc string) error {
+func verify(password, phc string, keyLen uint32) error {
+
 	if len(password) == 0 || len(phc) == 0 {
 		return errors.New("arguments len cannot be zero")
 	}

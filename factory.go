@@ -125,7 +125,7 @@ func (a *Argon2id) Verify(password, phc string) error {
 		p, _ = strconv.ParseUint(values[3], 10, 8)
 	)
 
-	computedHash := argon2.IDKey([]byte(password), []byte(salt), uint32(t), uint32(m), uint8(p), keyLen)
+	computedHash := argon2.IDKey([]byte(password), []byte(salt), uint32(t), uint32(m), uint8(p), a.keyLen)
 	if subtle.ConstantTimeCompare(hash, computedHash) != 1 {
 		return errors.New("password do not match")
 	}

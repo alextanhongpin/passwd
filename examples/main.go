@@ -8,13 +8,13 @@ import (
 
 func main() {
 	password := "your raw text password"
-	hash, err := passwd.Hash(password)
+	hash, err := passwd.Encrypt(password)
 	if err != nil {
 		log.Fatal(err)
 	}
 	log.Println(hash)
 
-	err = passwd.Verify(password, hash)
+	err = passwd.Compare(password, hash)
 	if err != nil {
 		log.Fatal(err)
 	}

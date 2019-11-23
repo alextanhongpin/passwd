@@ -9,50 +9,50 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestPasswordHashAndVerify(t *testing.T) {
+func TestPasswordHashAndCompare(t *testing.T) {
 	assert := assert.New(t)
 
 	var (
 		password = "secret"
 	)
-	hash, err := passwd.Hash(password)
+	hash, err := passwd.Encrypt(password)
 	log.Println(hash)
 	assert.Nil(err)
 
-	err = passwd.Verify(password, hash)
+	err = passwd.Compare(password, hash)
 	assert.Nil(err)
 }
 
 func TestEmptyPassword(t *testing.T) {
 	assert := assert.New(t)
 
-	_, err := passwd.Hash("")
+	_, err := passwd.Encrypt("")
 	assert.NotNil(err)
 }
 
-func TestVerify(t *testing.T) {
+func TestCompare(t *testing.T) {
 	assert := assert.New(t)
-	err := passwd.Verify("", "")
+	err := passwd.Compare("", "")
 	assert.NotNil(err)
-	assert.Equal("arguments len cannot be zero", err.Error())
+	assert.Equal(err, passwd.ErrPasswordRequired)
 
-	err = passwd.Verify("x", "")
+	err = passwd.Compare("x", "")
 	assert.NotNil(err)
-	assert.Equal("arguments len cannot be zero", err.Error())
+	assert.Equal(err, passwd.ErrPasswordRequired)
 
-	err = passwd.Verify("", "x")
+	err = passwd.Compare("", "x")
 	assert.NotNil(err)
-	assert.Equal("arguments len cannot be zero", err.Error())
+	assert.Equal(err, passwd.ErrPasswordRequired)
 
-	err = passwd.Verify("x", "x")
+	err = passwd.Compare("x", "x")
 	assert.NotNil(err)
-	assert.Equal("invalid hash format", err.Error())
+	assert.Equal(err, passwd.ErrHashInvalid)
 
-	err = passwd.Verify("x", "$a$b$c$d")
+	err = passwd.Compare("x", "$a$b$c$d")
 	assert.NotNil(err)
 	assert.Equal("unknown password hashing function identifier", err.Error())
 
-	err = passwd.Verify("x", "$argon2id$b$c$d")
+	err = passwd.Compare("x", "$argon2id$b$c$d")
 	assert.NotNil(err)
 	assert.Equal("illegal base64 data at input byte 0", err.Error())
 }

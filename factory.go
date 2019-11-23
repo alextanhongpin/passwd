@@ -62,12 +62,12 @@ func KeyLen(k uint32) Option {
 	}
 }
 
-// Hash hashes a raw-text password and return the hashed password.
-func (a *Argon2id) Hash(password string) (string, error) {
-	return hash(password, a.parallelism, a.saltLen, a.time, a.memory, a.keyLen)
+// Encrypt hashes a raw-text password and return the hashed password.
+func (a *Argon2id) Encrypt(password string) (string, error) {
+	return encrypt(password, a.parallelism, a.saltLen, a.time, a.memory, a.keyLen)
 }
 
-// Verify attempts to compare the password with the hash in constant-time compare.
-func (a *Argon2id) Verify(password, phc string) error {
-	return verify(password, phc, a.keyLen)
+// Compare attempts to compare the password with the hash in constant-time compare.
+func (a *Argon2id) Compare(password, phc string) error {
+	return compare(password, phc, a.keyLen)
 }

@@ -6,11 +6,16 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"regexp"
-	"strconv"
 	"strings"
 
 	"golang.org/x/crypto/argon2"
+)
+
+var (
+	ErrUnknownHashFunction = errors.New("unknown password hashing function identifier")
+	ErrPasswordRequired    = errors.New("password is required")
+	ErrPasswordInvalid     = errors.New("password is invalid")
+	ErrHashInvalid         = errors.New("hash is invalid")
 )
 
 const (
@@ -31,33 +36,33 @@ func generateSalt(size uint32) (string, error) {
 	if err != nil {
 		return "", err
 	}
-
 	return base64.StdEncoding.EncodeToString(salt), nil
 }
 
-// Hash takes a password and return a phc-formatted hash. PHC stands for password hashing competition.
+// Encrypt takes a password and return a phc-formatted hash. PHC stands for password hashing competition.
 //
 // Reference:
 // https://github.com/P-H-C/phc-string-format/blob/master/phc-sf-spec.md
 // https://crypto.stackexchange.com/questions/48935/why-use-argon2i-or-argon2d-if-argon2id-exists
-func Hash(password string) (string, error) {
-	return hash(password, parallelism, saltLen, time, memory, keyLen)
+func Encrypt(password string) (string, error) {
+	return encrypt(password, parallelism, saltLen, time, memory, keyLen)
 }
 
 // Verify attempts to compare the password with the hash in constant-time compare.
-func Verify(password, phc string) error {
-	return verify(password, phc, keyLen)
+func Compare(password, phc string) error {
+	return compare(password, phc, keyLen)
 }
 
 // -- helper functions
 
-func hash(password string, parallelism uint8, saltLen, time, memory, keyLen uint32) (string, error) {
-	if len(strings.TrimSpace(password)) == 0 {
-		return "", errors.New("password cannot be empty")
+func encrypt(password string, parallelism uint8, saltLen, time, memory, keyLen uint32) (string, error) {
+	password = strings.TrimSpace(password)
+	if len(password) == 0 {
+		return "", ErrPasswordRequired
 	}
 	salt, err := generateSalt(saltLen)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("generate salt failed: %w", err)
 	}
 	unencodedHash := argon2.IDKey([]byte(password), []byte(salt), time, memory, parallelism, keyLen)
 	encodedHash := base64.StdEncoding.EncodeToString(unencodedHash)
@@ -65,14 +70,16 @@ func hash(password string, parallelism uint8, saltLen, time, memory, keyLen uint
 	return phc, nil
 }
 
-func verify(password, phc string, keyLen uint32) error {
+func compare(password, phc string, keyLen uint32) error {
+	password = strings.TrimSpace(password)
+	phc = strings.TrimSpace(phc)
 
 	if len(password) == 0 || len(phc) == 0 {
-		return errors.New("arguments len cannot be zero")
+		return ErrPasswordRequired
 	}
 	parts := strings.Split(phc[1:], "$")
 	if len(parts) != 4 {
-		return errors.New("invalid hash format")
+		return ErrHashInvalid
 	}
 	var (
 		pid         = parts[0]
@@ -81,29 +88,25 @@ func verify(password, phc string, keyLen uint32) error {
 		encodedHash = parts[3]
 	)
 	if pid != id {
-		return errors.New("unknown password hashing function identifier")
+		return ErrUnknownHashFunction
 	}
 	hash, err := base64.StdEncoding.DecodeString(encodedHash)
 	if err != nil {
 		return err
 	}
-
-	re := regexp.MustCompile(`^m=([0-9]+),t=([0-9]+),p=([0-9]+)$`)
-	values := re.FindStringSubmatch(params)
-	if len(values) != 4 {
-		return errors.New("incorrect params length")
+	var m, t uint32
+	var p uint8
+	n, err := fmt.Sscanf(params, "m=%d,t=%d,p=%d", &m, &t, &p)
+	if n != 3 {
+		return ErrHashInvalid
 	}
-
-	var (
-		// The first match is the match of the entire expression.
-		m, _ = strconv.ParseUint(values[1], 10, 32)
-		t, _ = strconv.ParseUint(values[2], 10, 32)
-		p, _ = strconv.ParseUint(values[3], 10, 8)
-	)
-
-	computedHash := argon2.IDKey([]byte(password), []byte(salt), uint32(t), uint32(m), uint8(p), keyLen)
+	computedHash := argon2.IDKey([]byte(password), []byte(salt), t, m, p, keyLen)
 	if subtle.ConstantTimeCompare(hash, computedHash) != 1 {
-		return errors.New("password do not match")
+		return ErrPasswordInvalid
 	}
 	return nil
+}
+
+func ConstantTimeCompare(s1, s2 string) bool {
+	return subtle.ConstantTimeCompare([]byte(s1), []byte(s2)) == 1
 }

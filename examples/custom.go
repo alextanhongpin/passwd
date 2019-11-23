@@ -16,13 +16,13 @@ func main() {
 	)
 
 	password := "secret"
-	hash, err := hasher.Hash(password)
+	hash, err := hasher.Encrypt(password)
 	if err != nil {
 		log.Fatal(err)
 	}
 	log.Println(hash)
 
-	err = hasher.Verify(password, hash)
+	err = hasher.Compare(password, hash)
 	if err != nil {
 		log.Fatal(err)
 	}

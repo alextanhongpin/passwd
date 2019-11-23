@@ -14,8 +14,11 @@ func TestFactorySetup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = hasher.Compare(password, hash)
+	match, err := hasher.Compare(password, hash)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if match != true {
+		t.Fatalf("expected %t, got %t", true, match)
 	}
 }

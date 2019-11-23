@@ -68,6 +68,6 @@ func (a *Argon2id) Encrypt(password string) (string, error) {
 }
 
 // Compare attempts to compare the password with the hash in constant-time compare.
-func (a *Argon2id) Compare(password, phc string) error {
+func (a *Argon2id) Compare(password, phc string) (bool, error) {
 	return compare(password, phc, a.keyLen)
 }

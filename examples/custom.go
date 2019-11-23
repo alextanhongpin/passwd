@@ -22,8 +22,11 @@ func main() {
 	}
 	log.Println(hash)
 
-	err = hasher.Compare(password, hash)
+	match, err := hasher.Compare(password, hash)
 	if err != nil {
 		log.Fatal(err)
+	}
+	if match != true {
+		log.Fatal("password do not match")
 	}
 }

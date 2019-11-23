@@ -49,7 +49,7 @@ func Encrypt(password string) (string, error) {
 }
 
 // Verify attempts to compare the password with the hash in constant-time compare.
-func Compare(password, phc string) error {
+func Compare(password, phc string) (bool, error) {
 	return compare(password, phc, keyLen)
 }
 
@@ -70,16 +70,16 @@ func encrypt(password string, parallelism uint8, saltLen, time, memory, keyLen u
 	return phc, nil
 }
 
-func compare(password, phc string, keyLen uint32) error {
+func compare(password, phc string, keyLen uint32) (bool, error) {
 	password = strings.TrimSpace(password)
 	phc = strings.TrimSpace(phc)
 
 	if len(password) == 0 || len(phc) == 0 {
-		return ErrPasswordRequired
+		return false, ErrPasswordRequired
 	}
 	parts := strings.Split(phc[1:], "$")
 	if len(parts) != 4 {
-		return ErrHashInvalid
+		return false, ErrHashInvalid
 	}
 	var (
 		pid         = parts[0]
@@ -88,23 +88,23 @@ func compare(password, phc string, keyLen uint32) error {
 		encodedHash = parts[3]
 	)
 	if pid != id {
-		return ErrUnknownHashFunction
+		return false, ErrUnknownHashFunction
 	}
 	hash, err := base64.StdEncoding.DecodeString(encodedHash)
 	if err != nil {
-		return err
+		return false, err
 	}
 	var m, t uint32
 	var p uint8
 	n, err := fmt.Sscanf(params, "m=%d,t=%d,p=%d", &m, &t, &p)
 	if n != 3 {
-		return ErrHashInvalid
+		return false, ErrHashInvalid
 	}
 	computedHash := argon2.IDKey([]byte(password), []byte(salt), t, m, p, keyLen)
 	if subtle.ConstantTimeCompare(hash, computedHash) != 1 {
-		return ErrPasswordInvalid
+		return false, nil
 	}
-	return nil
+	return true, nil
 }
 
 func ConstantTimeCompare(s1, s2 string) bool {

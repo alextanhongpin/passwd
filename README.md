@@ -21,14 +21,14 @@ import (
 )
 
 func main() {
-	password := "your raw text password"
+	password := []byte("your raw text password")
 	hash, err := passwd.Encrypt(password)
 	if err != nil {
 		log.Fatal(err)
 	}
 	log.Println(hash)
 
-	match, err := passwd.Compare(password, hash)
+	match, err := passwd.Compare(hash, password)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -66,14 +66,14 @@ func main() {
 		passwd.KeyLen(100),
 	)
 
-	password := "secret"
+	password := []byte("secret")
 	hash, err := hasher.Encrypt(password)
 	if err != nil {
 		log.Fatal(err)
 	}
 	log.Println(hash)
 
-	match, err := hasher.Compare(password, hash)
+	match, err := hasher.Compare(hash, password)
 	if err != nil {
 		log.Fatal(err)
 	}

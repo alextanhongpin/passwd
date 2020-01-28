@@ -63,11 +63,11 @@ func KeyLen(k uint32) Option {
 }
 
 // Encrypt hashes a raw-text password and return the hashed password.
-func (a *Argon2id) Encrypt(password string) (string, error) {
+func (a *Argon2id) Encrypt(password []byte) (string, error) {
 	return encrypt(password, a.parallelism, a.saltLen, a.time, a.memory, a.keyLen)
 }
 
 // Compare attempts to compare the password with the hash in constant-time compare.
-func (a *Argon2id) Compare(password, phc string) (bool, error) {
+func (a *Argon2id) Compare(phc string, password []byte) (bool, error) {
 	return compare(password, phc, a.keyLen)
 }

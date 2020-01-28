@@ -44,19 +44,18 @@ func generateSalt(size uint32) (string, error) {
 // Reference:
 // https://github.com/P-H-C/phc-string-format/blob/master/phc-sf-spec.md
 // https://crypto.stackexchange.com/questions/48935/why-use-argon2i-or-argon2d-if-argon2id-exists
-func Encrypt(password string) (string, error) {
+func Encrypt(password []byte) (string, error) {
 	return encrypt(password, parallelism, saltLen, time, memory, keyLen)
 }
 
 // Verify attempts to compare the password with the hash in constant-time compare.
-func Compare(password, phc string) (bool, error) {
+func Compare(phc string, password []byte) (bool, error) {
 	return compare(password, phc, keyLen)
 }
 
 // -- helper functions
 
-func encrypt(password string, parallelism uint8, saltLen, time, memory, keyLen uint32) (string, error) {
-	password = strings.TrimSpace(password)
+func encrypt(password []byte, parallelism uint8, saltLen, time, memory, keyLen uint32) (string, error) {
 	if len(password) == 0 {
 		return "", ErrPasswordRequired
 	}
@@ -64,14 +63,13 @@ func encrypt(password string, parallelism uint8, saltLen, time, memory, keyLen u
 	if err != nil {
 		return "", fmt.Errorf("generate salt failed: %w", err)
 	}
-	unencodedHash := argon2.IDKey([]byte(password), []byte(salt), time, memory, parallelism, keyLen)
+	unencodedHash := argon2.IDKey(password, []byte(salt), time, memory, parallelism, keyLen)
 	encodedHash := base64.StdEncoding.EncodeToString(unencodedHash)
 	phc := fmt.Sprintf("$%s$m=%d,t=%d,p=%d$%s$%s", id, memory, time, parallelism, salt, encodedHash)
 	return phc, nil
 }
 
-func compare(password, phc string, keyLen uint32) (bool, error) {
-	password = strings.TrimSpace(password)
+func compare(password []byte, phc string, keyLen uint32) (bool, error) {
 	phc = strings.TrimSpace(phc)
 
 	if len(password) == 0 || len(phc) == 0 {
@@ -100,7 +98,7 @@ func compare(password, phc string, keyLen uint32) (bool, error) {
 	if n != 3 {
 		return false, ErrHashInvalid
 	}
-	computedHash := argon2.IDKey([]byte(password), []byte(salt), t, m, p, keyLen)
+	computedHash := argon2.IDKey(password, []byte(salt), t, m, p, keyLen)
 	if subtle.ConstantTimeCompare(hash, computedHash) != 1 {
 		return false, nil
 	}

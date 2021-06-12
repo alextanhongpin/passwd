@@ -19,6 +19,8 @@ func ExampleEncrypt() {
 }
 
 func ExampleCompare() {
+	password := []byte("your raw text password")
+	hash, _ := passwd.Encrypt(password)
 	match, err := passwd.Compare(hash, password)
 	if err != nil {
 		log.Fatal(err)
@@ -81,4 +83,20 @@ func TestCompare(t *testing.T) {
 	assert.NotNil(err)
 	assert.Equal("illegal base64 data at input byte 0", err.Error())
 	assert.False(match)
+}
+
+func TestNormalization(t *testing.T) {
+	// latin small letter e with acute
+	password1 := "1234567\u00e9"
+
+	// latin small letter e followed by combining acute accent
+	password2 := "1234567\u0065\u0301"
+
+	hash, err := passwd.Encrypt([]byte(password1))
+	assert := assert.New(t)
+	assert.Nil(err)
+
+	match, err := passwd.Compare(hash, []byte(password2))
+	assert.Nil(err)
+	assert.True(match)
 }

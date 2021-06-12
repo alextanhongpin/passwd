@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"golang.org/x/crypto/argon2"
+	"golang.org/x/text/unicode/norm"
 )
 
 var (
@@ -48,15 +49,23 @@ func Encrypt(password []byte) (string, error) {
 	return encrypt(password, parallelism, saltLen, time, memory, keyLen)
 }
 
-// Verify attempts to compare the password with the hash in constant-time compare.
+// Compare attempts to compare the password with the hash in constant-time compare.
 func Compare(phc string, password []byte) (bool, error) {
 	return compare(password, phc, keyLen)
+}
+
+// ConstantTimeCompare compares two strings in constant time.
+func ConstantTimeCompare(s1, s2 string) bool {
+	return subtle.ConstantTimeCompare([]byte(s1), []byte(s2)) == 1
 }
 
 // -- helper functions
 
 func encrypt(password []byte, parallelism uint8, saltLen, time, memory, keyLen uint32) (string, error) {
-	if len(password) == 0 {
+	password = normalize(password)
+
+	// Count the length of the runes
+	if len([]rune(string(password))) == 0 {
 		return "", ErrPasswordRequired
 	}
 	salt, err := generateSalt(saltLen)
@@ -70,9 +79,10 @@ func encrypt(password []byte, parallelism uint8, saltLen, time, memory, keyLen u
 }
 
 func compare(password []byte, phc string, keyLen uint32) (bool, error) {
-	phc = strings.TrimSpace(phc)
+	password = normalize(password)
 
-	if len(password) == 0 || len(phc) == 0 {
+	phc = strings.TrimSpace(phc)
+	if len([]rune(string(password))) == 0 || len(phc) == 0 {
 		return false, ErrPasswordRequired
 	}
 	parts := strings.Split(phc[1:], "$")
@@ -105,6 +115,7 @@ func compare(password []byte, phc string, keyLen uint32) (bool, error) {
 	return true, nil
 }
 
-func ConstantTimeCompare(s1, s2 string) bool {
-	return subtle.ConstantTimeCompare([]byte(s1), []byte(s2)) == 1
+// Normalize password.
+func normalize(b []byte) []byte {
+	return norm.NFKD.Bytes(b)
 }

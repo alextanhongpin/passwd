@@ -13,10 +13,12 @@ import (
 )
 
 var (
-	ErrUnknownHashFunction = errors.New("unknown password hashing function identifier")
-	ErrPasswordRequired    = errors.New("password is required")
-	ErrPasswordInvalid     = errors.New("password is invalid")
-	ErrHashInvalid         = errors.New("hash is invalid")
+	ErrUnknownHashFunction = errors.New("passwd: unknown password hashing function identifier")
+	ErrPasswordRequired    = errors.New("passwd: password is required")
+	ErrPasswordInvalid     = errors.New("passwd: password is invalid")
+	ErrHashInvalid         = errors.New("passwd: hash is invalid")
+	ErrGenerateSalt        = errors.New("passwd: generate salt failed")
+	ErrBase64Decode        = errors.New("passwd: base64 decoding failed")
 )
 
 const (
@@ -29,14 +31,18 @@ const (
 	memory      = 64 * 1024
 	parallelism = 4
 	keyLen      = 32
+
+	scanArgsLen  = 3
+	hashPartsLen = 4
 )
 
 func generateSalt(size uint32) (string, error) {
 	salt := make([]byte, size)
-	_, err := rand.Read(salt)
-	if err != nil {
+
+	if _, err := rand.Read(salt); err != nil {
 		return "", err
 	}
+
 	return base64.StdEncoding.EncodeToString(salt), nil
 }
 
@@ -68,13 +74,16 @@ func encrypt(password []byte, parallelism uint8, saltLen, time, memory, keyLen u
 	if len([]rune(string(password))) == 0 {
 		return "", ErrPasswordRequired
 	}
+
 	salt, err := generateSalt(saltLen)
 	if err != nil {
-		return "", fmt.Errorf("generate salt failed: %w", err)
+		return "", fmt.Errorf("%w: %s", ErrGenerateSalt, err)
 	}
+
 	unencodedHash := argon2.IDKey(password, []byte(salt), time, memory, parallelism, keyLen)
 	encodedHash := base64.StdEncoding.EncodeToString(unencodedHash)
 	phc := fmt.Sprintf("$%s$m=%d,t=%d,p=%d$%s$%s", id, memory, time, parallelism, salt, encodedHash)
+
 	return phc, nil
 }
 
@@ -85,37 +94,47 @@ func compare(password []byte, phc string, keyLen uint32) (bool, error) {
 	if len([]rune(string(password))) == 0 || len(phc) == 0 {
 		return false, ErrPasswordRequired
 	}
+
 	parts := strings.Split(phc[1:], "$")
-	if len(parts) != 4 {
+	if len(parts) != hashPartsLen {
 		return false, ErrHashInvalid
 	}
+
 	var (
 		pid         = parts[0]
 		params      = parts[1]
 		salt        = parts[2]
 		encodedHash = parts[3]
 	)
+
 	if pid != id {
 		return false, ErrUnknownHashFunction
 	}
+
 	hash, err := base64.StdEncoding.DecodeString(encodedHash)
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("%w: %s", ErrBase64Decode, err)
 	}
+
 	var m, t uint32
 	var p uint8
 	n, err := fmt.Sscanf(params, "m=%d,t=%d,p=%d", &m, &t, &p)
-	if n != 3 {
-		return false, ErrHashInvalid
+	if n != scanArgsLen {
+		return false, fmt.Errorf("%w: %s", ErrHashInvalid, err)
 	}
+
 	computedHash := argon2.IDKey(password, []byte(salt), t, m, p, keyLen)
 	if subtle.ConstantTimeCompare(hash, computedHash) != 1 {
 		return false, nil
 	}
+
 	return true, nil
 }
 
-// Normalize password.
+// Normalize password. Some devices uses different normalization standard,
+// hence login in with the same password on those device might lead to
+// mismatched password. We use NFKC because due to decomposition in NFKD, the
+// length appears to be longer (see TestNormalizationLength)
 func normalize(b []byte) []byte {
-	return norm.NFKD.Bytes(b)
+	return norm.NFKC.Bytes(b)
 }

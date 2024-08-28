@@ -2,7 +2,7 @@ package passwd_test
 
 import (
 	"bytes"
-	"errors"
+	"fmt"
 	"log"
 	"testing"
 
@@ -13,80 +13,60 @@ import (
 )
 
 func ExampleEncrypt() {
-	password := []byte("your raw text password")
+	password := "your raw text password"
 	hash, err := passwd.Encrypt(password)
 	if err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
 	log.Println(hash)
 }
 
 func ExampleCompare() {
-	password := []byte("your raw text password")
-	hash, _ := passwd.Encrypt(password)
-	match, err := passwd.Compare(hash, password)
-	if err != nil {
-		log.Fatal(err)
-	}
-	if match != true {
-		log.Fatal("password do not match")
-	}
+	hash := "$argon2id$v=19$m=65536,t=2,p=4$Sw8vppzw93YpLPotOuQhAA==$1uIAcD43cWZB5AxXI+zMUx6e2zzMaAJL2F1rAF0MX88="
+	password := "secret"
+	err := passwd.Compare(hash, password)
+	fmt.Println(err)
+	// Output:
+	// <nil>
+}
+
+func ExampleEncryptAndCompare() {
+	password := "your raw text password"
+	hash, err := passwd.Encrypt(password)
+	fmt.Println(err)
+
+	err = passwd.Compare(hash, password)
+	fmt.Println(err)
+
+	err = passwd.Compare(hash, "wrong password")
+	fmt.Println(err)
+	// Output:
+	// <nil>
+	// <nil>
+	// passwd: wrong password
 }
 
 func TestPasswordHashAndCompare(t *testing.T) {
-	assert := assert.New(t)
+	is := assert.New(t)
 
-	var (
-		password = []byte("secret")
-	)
+	password := "secret"
 	hash, err := passwd.Encrypt(password)
-	log.Println(hash)
-	assert.Nil(err)
+	is.Nil(err)
+	is.Nil(passwd.Compare(hash, password))
 
-	match, err := passwd.Compare(hash, password)
-	assert.Nil(err)
-	assert.True(match)
-}
-
-func TestEmptyPassword(t *testing.T) {
-	assert := assert.New(t)
-
-	_, err := passwd.Encrypt([]byte(""))
-	assert.NotNil(err)
-	assert.True(errors.Is(err, passwd.ErrPasswordRequired))
+	t.Log(hash)
 }
 
 func TestCompare(t *testing.T) {
-	assert := assert.New(t)
-	match, err := passwd.Compare("", nil)
-	assert.NotNil(err)
-	assert.True(errors.Is(err, passwd.ErrPasswordRequired))
-	assert.False(match)
-
-	match, err = passwd.Compare("", []byte("x"))
-	assert.NotNil(err)
-	assert.True(errors.Is(err, passwd.ErrPasswordRequired))
-	assert.False(match)
-
-	match, err = passwd.Compare("x", nil)
-	assert.NotNil(err)
-	assert.True(errors.Is(err, passwd.ErrPasswordRequired))
-	assert.False(match)
-
-	match, err = passwd.Compare("x", []byte("x"))
-	assert.NotNil(err)
-	assert.True(errors.Is(err, passwd.ErrHashInvalid))
-	assert.False(match)
-
-	match, err = passwd.Compare("$a$b$c$d", []byte("x"))
-	assert.NotNil(err)
-	assert.True(errors.Is(err, passwd.ErrUnknownHashFunction))
-	assert.False(match)
-
-	match, err = passwd.Compare("$argon2id$b$c$d", []byte("x"))
-	assert.NotNil(err)
-	assert.True(errors.Is(err, passwd.ErrBase64Decode))
-	assert.False(match)
+	test := func(name string, phc, password string, err error) {
+		t.Run(name, func(t *testing.T) {
+			is := assert.New(t)
+			is.ErrorIs(passwd.Compare(phc, password), err)
+		})
+	}
+	test("empty phc", "", "x", passwd.ErrInvalidHash)
+	test("empty password", "x", "", passwd.ErrEmptyPassword)
+	test("invalid hash", "x", "x", passwd.ErrInvalidHash)
 }
 
 func TestNormalization(t *testing.T) {
@@ -96,48 +76,40 @@ func TestNormalization(t *testing.T) {
 	// latin small letter e followed by combining acute accent (1234567\u0065\u0301)
 	password2 := "1234567é"
 
-	assert := assert.New(t)
-
 	t.Run("equality before normalization", func(t *testing.T) {
-		t.Parallel()
-
-		assert.False(password1 == password2)
+		is := assert.New(t)
+		is.False(password1 == password2)
 	})
 
 	t.Run("equality after normalization", func(t *testing.T) {
-		t.Parallel()
-
 		nfkc1 := norm.NFKC.Bytes([]byte(password1))
 		nfkc2 := norm.NFKC.Bytes([]byte(password2))
 
-		assert.True(bytes.Equal(nfkc1, nfkc2))
+		is := assert.New(t)
+		is.True(bytes.Equal(nfkc1, nfkc2))
 	})
 
 	t.Run("normalized encryption", func(t *testing.T) {
-		t.Parallel()
+		hash, err := passwd.Encrypt(password1)
+		is := assert.New(t)
+		is.Nil(err)
 
-		hash, err := passwd.Encrypt([]byte(password1))
-		assert.Nil(err)
-
-		match, err := passwd.Compare(hash, []byte(password2))
-		assert.Nil(err)
-		assert.True(match)
+		is.Nil(passwd.Compare(hash, password2))
 	})
 }
 
 func TestNormalizationLength(t *testing.T) {
-	assert := assert.New(t)
-
 	b := []byte("1234567é")
 	nfc := norm.NFC.Bytes(b)
 	nfd := norm.NFD.Bytes(b)
 	nfkc := norm.NFKC.Bytes(b)
 	nfkd := norm.NFKD.Bytes(b)
 
-	assert.Equal(len(nfc), 9)
-	assert.Equal(len(nfd), 10)
-	assert.Equal(len(nfkc), 9)
-	assert.Equal(len(nfkd), 10)
+	is := assert.New(t)
+	is.Equal(len(nfc), 9)
+	is.Equal(len(nfd), 10)
+	is.Equal(len(nfkc), 9)
+	is.Equal(len(nfkd), 10)
 
 	runelen := func(b []byte) int {
 		// Using `len([]rune(string(b)))` is now as optimized as using `utf8.RuneCountInString(string(b))`
@@ -147,8 +119,8 @@ func TestNormalizationLength(t *testing.T) {
 		return len([]rune(string(b)))
 	}
 
-	assert.Equal(runelen(nfc), 8)
-	assert.Equal(runelen(nfd), 9)
-	assert.Equal(runelen(nfkc), 8)
-	assert.Equal(runelen(nfkd), 9)
+	is.Equal(runelen(nfc), 8)
+	is.Equal(runelen(nfd), 9)
+	is.Equal(runelen(nfkc), 8)
+	is.Equal(runelen(nfkd), 9)
 }

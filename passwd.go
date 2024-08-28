@@ -7,128 +7,116 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"golang.org/x/crypto/argon2"
 	"golang.org/x/text/unicode/norm"
 )
 
 var (
-	ErrUnknownHashFunction = errors.New("passwd: unknown password hashing function identifier")
-	ErrPasswordRequired    = errors.New("passwd: password is required")
-	ErrPasswordInvalid     = errors.New("passwd: password is invalid")
-	ErrHashInvalid         = errors.New("passwd: hash is invalid")
-	ErrGenerateSalt        = errors.New("passwd: generate salt failed")
-	ErrBase64Decode        = errors.New("passwd: base64 decoding failed")
+	ErrDecodeBase64  = errors.New("passwd: error decoding base64")
+	ErrEmptyPassword = errors.New("passwd: password must not be empty")
+	ErrGenerateSalt  = errors.New("passwd: error generating salt")
+	ErrInvalidHash   = errors.New("passwd: invalid argon2id hash")
+	ErrWrongPassword = errors.New("passwd: wrong password")
 )
 
-const (
-	// Salt config
-	saltLen = 16
+// Argon2id contains the configuration for the argon2id hashing function.
+type Argon2id struct {
+	Time        uint32
+	Memory      uint32
+	Parallelism uint8
+	KeyLen      uint32
+	SaltLen     uint32
+}
 
-	// Argon2id config
-	id          = "argon2id"
-	time        = 2
-	memory      = 64 * 1024
-	parallelism = 4
-	keyLen      = 32
-
-	scanArgsLen  = 3
-	hashPartsLen = 4
-)
-
-func generateSalt(size uint32) (string, error) {
-	salt := make([]byte, size)
-
-	if _, err := rand.Read(salt); err != nil {
-		return "", err
+// New returns a new argon2id hasher with recommended options.
+func New() Argon2id {
+	return Argon2id{
+		Time:        2,
+		Memory:      64 * 1024,
+		Parallelism: 4,
+		KeyLen:      32,
+		SaltLen:     16,
 	}
-
-	return base64.StdEncoding.EncodeToString(salt), nil
 }
 
-// Encrypt takes a password and return a phc-formatted hash. PHC stands for password hashing competition.
-//
-// Reference:
-// https://github.com/P-H-C/phc-string-format/blob/master/phc-sf-spec.md
-// https://crypto.stackexchange.com/questions/48935/why-use-argon2i-or-argon2d-if-argon2id-exists
-func Encrypt(password []byte) (string, error) {
-	return encrypt(password, parallelism, saltLen, time, memory, keyLen)
-}
-
-// Compare attempts to compare the password with the hash in constant-time compare.
-func Compare(phc string, password []byte) (bool, error) {
-	return compare(password, phc, keyLen)
-}
-
-// ConstantTimeCompare compares two strings in constant time.
-func ConstantTimeCompare(s1, s2 string) bool {
-	return subtle.ConstantTimeCompare([]byte(s1), []byte(s2)) == 1
-}
-
-// -- helper functions
-
-func encrypt(password []byte, parallelism uint8, saltLen, time, memory, keyLen uint32) (string, error) {
-	password = normalize(password)
-
-	// Count the length of the runes
-	if len([]rune(string(password))) == 0 {
-		return "", ErrPasswordRequired
-	}
-
-	salt, err := generateSalt(saltLen)
+// Encrypt hashes a raw-text password and return the hashed password.
+func (a *Argon2id) Encrypt(password string) (string, error) {
+	salt, err := generateSalt(a.SaltLen)
 	if err != nil {
 		return "", fmt.Errorf("%w: %s", ErrGenerateSalt, err)
 	}
 
-	unencodedHash := argon2.IDKey(password, []byte(salt), time, memory, parallelism, keyLen)
-	encodedHash := base64.StdEncoding.EncodeToString(unencodedHash)
-	phc := fmt.Sprintf("$%s$m=%d,t=%d,p=%d$%s$%s", id, memory, time, parallelism, salt, encodedHash)
-
-	return phc, nil
+	return a.encryptWithSalt([]byte(password), salt)
 }
 
-func compare(password []byte, phc string, keyLen uint32) (bool, error) {
+// Compare attempts to compare the password with the hash in constant-time compare.
+func (a *Argon2id) Compare(encodedHash, password string) error {
+	if runeLength(password) == 0 {
+		return ErrEmptyPassword
+	}
+	if runeLength(encodedHash) == 0 {
+		return fmt.Errorf("%w: hash is empty", ErrInvalidHash)
+	}
+
+	r, err := Parse(encodedHash)
+	if err != nil {
+		return err
+	}
+
+	h, err := r.Argon2id.encryptWithSalt([]byte(password), r.Salt)
+	if err != nil {
+		return err
+	}
+	if subtle.ConstantTimeCompare([]byte(encodedHash), []byte(h)) != 1 {
+		return ErrWrongPassword
+	}
+
+	return nil
+}
+
+func (a *Argon2id) encryptWithSalt(password, salt []byte) (string, error) {
 	password = normalize(password)
 
-	phc = strings.TrimSpace(phc)
-	if len([]rune(string(password))) == 0 || len(phc) == 0 {
-		return false, ErrPasswordRequired
+	// Count the length of the runes
+	if runeLength(string(password)) == 0 {
+		return "", ErrEmptyPassword
 	}
 
-	parts := strings.Split(phc[1:], "$")
-	if len(parts) != hashPartsLen {
-		return false, ErrHashInvalid
+	hash := argon2.IDKey(password, salt, a.Time, a.Memory, a.Parallelism, a.KeyLen)
+	b64Salt := base64.StdEncoding.EncodeToString(salt)
+	b64Hash := base64.StdEncoding.EncodeToString(hash)
+
+	encodedHash := fmt.Sprintf("$argon2id$v=%d$m=%d,t=%d,p=%d$%s$%s", argon2.Version, a.Memory, a.Time, a.Parallelism, b64Salt, b64Hash)
+
+	return encodedHash, nil
+}
+
+func generateSalt(size uint32) ([]byte, error) {
+	salt := make([]byte, size)
+
+	if _, err := rand.Read(salt); err != nil {
+		return nil, err
 	}
 
-	var (
-		pid         = parts[0]
-		params      = parts[1]
-		salt        = parts[2]
-		encodedHash = parts[3]
-	)
+	return salt, nil
+}
 
-	if pid != id {
-		return false, ErrUnknownHashFunction
-	}
+// Encrypt takes a password and return a encodedHash-formatted hash. PHC stands for password hashing competition.
+//
+// Reference:
+// https://github.com/P-H-C/encodedHash-string-format/blob/master/encodedHash-sf-spec.md
+// https://crypto.stackexchange.com/questions/48935/why-use-argon2i-or-argon2d-if-argon2id-exists
+var argon2id = New()
 
-	hash, err := base64.StdEncoding.DecodeString(encodedHash)
-	if err != nil {
-		return false, fmt.Errorf("%w: %s", ErrBase64Decode, err)
-	}
+func Encrypt(password string) (string, error) {
+	return argon2id.Encrypt(password)
+}
 
-	var m, t uint32
-	var p uint8
-	n, err := fmt.Sscanf(params, "m=%d,t=%d,p=%d", &m, &t, &p)
-	if n != scanArgsLen {
-		return false, fmt.Errorf("%w: %s", ErrHashInvalid, err)
-	}
-
-	computedHash := argon2.IDKey(password, []byte(salt), t, m, p, keyLen)
-	if subtle.ConstantTimeCompare(hash, computedHash) != 1 {
-		return false, nil
-	}
-
-	return true, nil
+// Compare attempts to compare the password with the hash in constant-time compare.
+func Compare(encodedHash, password string) error {
+	return argon2id.Compare(encodedHash, password)
 }
 
 // Normalize password. Some devices uses different normalization standard,
@@ -137,4 +125,50 @@ func compare(password []byte, phc string, keyLen uint32) (bool, error) {
 // length appears to be longer (see TestNormalizationLength)
 func normalize(b []byte) []byte {
 	return norm.NFKC.Bytes(b)
+}
+
+func runeLength(s string) int {
+	return utf8.RuneCountInString(s)
+}
+
+func Parse(s string) (*Result, error) {
+	var version int
+	var b64SaltPlusHash string
+	var a Argon2id
+	n, err := fmt.Sscanf(s, "$argon2id$v=%d$m=%d,t=%d,p=%d$%s", &version, &a.Memory, &a.Time, &a.Parallelism, &b64SaltPlusHash)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidHash, err)
+	}
+	if n != 5 || version != argon2.Version {
+		return nil, ErrInvalidHash
+	}
+
+	b64Salt, b64Hash, ok := strings.Cut(b64SaltPlusHash, "$")
+	if !ok {
+		return nil, ErrInvalidHash
+	}
+
+	salt, err := base64.StdEncoding.DecodeString(b64Salt)
+	if err != nil {
+		return nil, fmt.Errorf("%w: salt: %w", ErrDecodeBase64, err)
+	}
+	a.SaltLen = uint32(len(salt))
+
+	hash, err := base64.StdEncoding.DecodeString(b64Hash)
+	if err != nil {
+		return nil, fmt.Errorf("%w: hash: %w", ErrDecodeBase64, err)
+	}
+	a.KeyLen = uint32(len(hash))
+
+	return &Result{
+		Argon2id: &a,
+		Hash:     hash,
+		Salt:     salt,
+	}, nil
+}
+
+type Result struct {
+	Argon2id *Argon2id
+	Hash     []byte
+	Salt     []byte
 }
